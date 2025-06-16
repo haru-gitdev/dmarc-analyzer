@@ -74,11 +74,21 @@ class DMARCAnalyzer:
             print(f"❌ ディレクトリが見つかりません: {self.dmarc_dir}")
             return xml_files
         
+        print(f"📁 ディレクトリ内容を確認: {self.dmarc_dir}")
+        all_files = os.listdir(self.dmarc_dir)
+        print(f"📋 ファイル一覧: {all_files}")
+        
         # 既存のXMLファイルを取得
-        xml_files.extend(glob.glob(os.path.join(self.dmarc_dir, "*.xml")))
+        existing_xml = glob.glob(os.path.join(self.dmarc_dir, "*.xml"))
+        xml_files.extend(existing_xml)
+        if existing_xml:
+            print(f"📄 既存XMLファイル: {[os.path.basename(f) for f in existing_xml]}")
         
         # ZIPファイルを解凍
         zip_files = glob.glob(os.path.join(self.dmarc_dir, "*.zip"))
+        if zip_files:
+            print(f"📦 ZIPファイル発見: {[os.path.basename(f) for f in zip_files]}")
+        
         for zip_path in zip_files:
             try:
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -98,6 +108,9 @@ class DMARCAnalyzer:
         
         # GZファイルを解凍
         gz_files = glob.glob(os.path.join(self.dmarc_dir, "*.gz"))
+        if gz_files:
+            print(f"🗜️ GZファイル発見: {[os.path.basename(f) for f in gz_files]}")
+        
         for gz_path in gz_files:
             try:
                 xml_path = gz_path.replace('.gz', '')
@@ -114,6 +127,10 @@ class DMARCAnalyzer:
                 
             except Exception as e:
                 print(f"❌ GZ解凍エラー {gz_path}: {e}")
+        
+        print(f"📊 最終的に見つかったXMLファイル数: {len(xml_files)}")
+        if xml_files:
+            print(f"📄 XMLファイル一覧: {[os.path.basename(f) for f in xml_files]}")
         
         return xml_files
     
@@ -376,28 +393,101 @@ class DMARCAnalyzer:
         if not records:
             return ""
         
+        # ターミナル幅を取得
+        terminal_width = self.get_terminal_width()
+        
         headers = [
             'Source IP', 'Count', 'Header From', 'SPF Domain', 
             'SPF Result', 'DKIM Domain', 'DKIM Result', 
             'DKIM Selector', 'DMARC Result'
         ]
         
+        # 各列の最適幅を計算
+        col_widths = self.calculate_column_widths(records, headers, terminal_width)
+        
         table_data = []
         for record in records:
             row = [
-                record['source_ip'],
-                record['count'],
-                record['header_from'],
-                record['spf_domain'],
+                self.truncate_text(record['source_ip'], col_widths[0]),
+                str(record['count']),
+                self.truncate_text(record['header_from'], col_widths[2]),
+                self.truncate_text(record['spf_domain'], col_widths[3]),
                 self.colorize_result(record['spf_result'], show_colors),
-                record['dkim_domain'],
+                self.truncate_text(record['dkim_domain'], col_widths[5]),
                 self.colorize_result(record['dkim_result'], show_colors),
-                record['dkim_selector'],
+                self.truncate_text(record['dkim_selector'], col_widths[7]),
                 self.colorize_result(record['dmarc_result'], show_colors)
             ]
             table_data.append(row)
         
         return tabulate(table_data, headers=headers, tablefmt='grid')
+    
+    def get_terminal_width(self) -> int:
+        """ターミナル幅を取得"""
+        try:
+            return shutil.get_terminal_size().columns
+        except Exception:
+            return 120  # デフォルト幅
+    
+    def calculate_column_widths(self, records: List[Dict[str, Any]], headers: List[str], terminal_width: int) -> List[int]:
+        """各列の最適幅を計算"""
+        # より保守的な固定幅設定
+        fixed_widths = {
+            'Count': 5,
+            'SPF Result': 6,
+            'DKIM Result': 6,
+            'DMARC Result': 6
+        }
+        
+        # 固定幅の合計
+        fixed_total = sum(fixed_widths.values())
+        
+        # グリッド線とスペースの概算を大きめに見積もり (各列間に4文字、両端に3文字)
+        grid_overhead = len(headers) * 4 + 6
+        
+        # 可変列に使える幅
+        available_width = terminal_width - fixed_total - grid_overhead
+        
+        # 可変列の数（固定幅が設定されていない列）
+        variable_cols = len(headers) - len(fixed_widths)
+        
+        # 各可変列の基本幅
+        base_width = max(8, available_width // variable_cols) if variable_cols > 0 else 12
+        
+        # 各列の幅を設定
+        col_widths = []
+        for i, header in enumerate(headers):
+            if header in fixed_widths:
+                col_widths.append(fixed_widths[header])
+            else:
+                # より控えめな幅設定
+                if 'Domain' in header or 'From' in header:
+                    col_widths.append(min(base_width + 2, 20))
+                elif 'IP' in header:
+                    col_widths.append(min(base_width, 12))
+                elif 'Selector' in header:
+                    col_widths.append(min(base_width - 1, 10))
+                else:
+                    col_widths.append(base_width)
+        
+        # デバッグ情報
+        total_estimated = sum(col_widths) + grid_overhead
+        print(f"🖥️ ターミナル幅: {terminal_width}, 推定テーブル幅: {total_estimated}")
+        
+        return col_widths
+    
+    def truncate_text(self, text: str, max_width: int) -> str:
+        """テキストを指定幅で切り詰める"""
+        if not text:
+            return ""
+        
+        if len(text) <= max_width:
+            return text
+        
+        if max_width <= 3:
+            return "..."[:max_width]
+        
+        return text[:max_width-3] + "..."
     
     def colorize_result(self, result: str, show_colors: bool = True) -> str:
         """結果に色を付ける"""
