@@ -456,7 +456,7 @@ class DMARCAnalyzer:
         
         # 各列の幅を設定
         col_widths = []
-        for i, header in enumerate(headers):
+        for header in headers:
             if header in fixed_widths:
                 col_widths.append(fixed_widths[header])
             else:
@@ -585,27 +585,56 @@ class DMARCAnalyzer:
         print(f"  - DKIM失敗: {dkim_fails}件 ({dkim_fails/total_records*100:.1f}%)")
         print(f"  - DMARC失敗: {dmarc_fails}件 ({dmarc_fails/total_records*100:.1f}%)")
         
-        # ドメイン別分析
-        domains = {}
+        # Header From ドメイン別分析
+        header_domains = {}
         for record in records:
             domain = record['header_from']
-            if domain not in domains:
-                domains[domain] = {'total': 0, 'fails': 0}
-            domains[domain]['total'] += 1
+            if domain not in header_domains:
+                header_domains[domain] = {'total': 0, 'fails': 0}
+            header_domains[domain]['total'] += 1
             if record['dmarc_result'] != 'pass':
-                domains[domain]['fails'] += 1
+                header_domains[domain]['fails'] += 1
         
-        print(f"\n📋 ドメイン別分析:")
-        for domain, stats in domains.items():
+        print(f"\n📋 Header From ドメイン別分析:")
+        for domain, stats in header_domains.items():
             fail_rate = stats['fails'] / stats['total'] * 100
             print(f"  - {domain}: {stats['total']}件中{stats['fails']}件失敗 ({fail_rate:.1f}%)")
         
-        # エラーのあるドメイン一覧を表示
-        error_domains = {domain: stats for domain, stats in domains.items() if stats['fails'] > 0}
-        if error_domains:
-            print("\n❌ エラーのあるドメイン一覧 (完全表示):")
-            for domain, stats in sorted(error_domains.items(), key=lambda x: x[1]['fails'], reverse=True):
-                print(f"  {domain} - {stats['fails']}件のエラー")
+        # 認証失敗している外部ドメインの分析
+        auth_fail_domains = {}
+        
+        for record in records:
+            # SPF失敗ドメイン
+            if record['spf_result'] != 'pass' and record['spf_domain']:
+                domain = record['spf_domain']
+                if domain not in auth_fail_domains:
+                    auth_fail_domains[domain] = {'spf_fails': 0, 'dkim_fails': 0}
+                auth_fail_domains[domain]['spf_fails'] += 1
+            
+            # DKIM失敗ドメイン
+            if record['dkim_result'] != 'pass' and record['dkim_domain']:
+                domain = record['dkim_domain']
+                if domain not in auth_fail_domains:
+                    auth_fail_domains[domain] = {'spf_fails': 0, 'dkim_fails': 0}
+                auth_fail_domains[domain]['dkim_fails'] += 1
+        
+        if auth_fail_domains:
+            print("\n❌ 認証失敗している外部ドメイン一覧 (完全表示):")
+            # 失敗件数の合計でソート
+            sorted_domains = sorted(auth_fail_domains.items(), 
+                                  key=lambda x: x[1]['spf_fails'] + x[1]['dkim_fails'], 
+                                  reverse=True)
+            
+            for domain, stats in sorted_domains:
+                fail_types = []
+                total_fails = 0
+                if stats['spf_fails'] > 0:
+                    fail_types.append(f"SPF {stats['spf_fails']}件")
+                    total_fails += stats['spf_fails']
+                if stats['dkim_fails'] > 0:
+                    fail_types.append(f"DKIM {stats['dkim_fails']}件")
+                    total_fails += stats['dkim_fails']
+                print(f"  {domain} - {', '.join(fail_types)} (計{total_fails}件)")
     
     def cleanup(self) -> None:
         """一時ファイルをクリーンアップ"""

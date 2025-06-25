@@ -120,12 +120,14 @@ dmarc-analyzer --no-color
   - DKIM失敗: 0件 (0.0%)
   - DMARC失敗: 0件 (0.0%)
 
-📋 ドメイン別分析:
+📋 Header From ドメイン別分析:
   - example.com: 1件中0件失敗 (0.0%)
   - test.com: 1件中0件失敗 (0.0%)
 
-❌ エラーのあるドメイン一覧 (完全表示):
-  (この例では全てのドメインでDMARC passのためエラーなし)
+❌ 認証失敗している外部ドメイン一覧 (完全表示):
+  external-sender.com - SPF 15件, DKIM 3件 (計18件)
+  suspicious-domain.org - SPF 8件 (計8件)
+  another-domain.net - DKIM 2件 (計2件)
 ```
 
 ### 全てのレコードでエラーがない場合
@@ -199,6 +201,11 @@ MIT License - 詳細は [LICENSE](LICENSE) ファイルを参照
 - **機能要望**: 同じく GitHub Issues で
 
 ## 📈 バージョン履歴
+
+- **v1.2.1** - 詳細分析の表示内容改善
+  - 認証失敗している外部ドメイン（SPF/DKIMドメイン）の分析機能を追加
+  - Header Fromドメインと外部認証ドメインを分けて表示
+  - SPF/DKIM失敗種別と件数を詳細表示
 
 - **v1.2.0** - 詳細分析機能強化
   - エラードメインの完全一覧表示機能を追加
