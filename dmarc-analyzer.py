@@ -599,6 +599,13 @@ class DMARCAnalyzer:
         for domain, stats in domains.items():
             fail_rate = stats['fails'] / stats['total'] * 100
             print(f"  - {domain}: {stats['total']}件中{stats['fails']}件失敗 ({fail_rate:.1f}%)")
+        
+        # エラーのあるドメイン一覧を表示
+        error_domains = {domain: stats for domain, stats in domains.items() if stats['fails'] > 0}
+        if error_domains:
+            print("\n❌ エラーのあるドメイン一覧 (完全表示):")
+            for domain, stats in sorted(error_domains.items(), key=lambda x: x[1]['fails'], reverse=True):
+                print(f"  {domain} - {stats['fails']}件のエラー")
     
     def cleanup(self) -> None:
         """一時ファイルをクリーンアップ"""
