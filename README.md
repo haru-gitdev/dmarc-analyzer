@@ -124,7 +124,7 @@ dmarc-analyzer --no-color
   - test.com: 1件中0件失敗 (0.0%)
 
 ドメイン一覧 (完全表示):
-  *.bnc.salesforce.com SPF 120件(pass 120件) 計120件
+  *.mail.mailservice.example SPF 120件(pass 120件) 計120件
   external-sender.com SPF 15件(pass 5件, softfail 3件, fail 7件), DKIM 3件(pass 1件, fail 2件) 計18件
   suspicious-domain.org SPF 8件(none 3件, fail 5件) 計8件
   another-domain.net DKIM 2件(fail 2件) 計2件
@@ -204,7 +204,7 @@ MIT License - 詳細は [LICENSE](LICENSE) ファイルを参照
 
 - **v1.3.1** - ドメイングループ化機能の追加
   - 類似サブドメインの自動グループ化（3個以上でワイルドカード表示）
-  - Salesforceなど大量のサブドメインを「*.bnc.salesforce.com」形式でまとめて表示
+  - 大量のサブドメインを「*.mail.mailservice.example」形式でまとめて表示
   - エラーなしレコードでも詳細分析を表示するバグ修正
 
 - **v1.3.0** - 分析表示機能の大幅改善
