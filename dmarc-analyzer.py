@@ -556,10 +556,9 @@ class DMARCAnalyzer:
                     print(f"✅ {clean_count}件のレコードはエラーがないため表示を省略しました。")
             else:
                 print("\n✅ 全てのレコードでエラーがありませんでした")
-                return
         
         # 詳細分析を常に表示
-        self.show_detailed_analysis(consolidated_records if show_all else error_records)
+        self.show_detailed_analysis(consolidated_records)
     
     def show_detailed_analysis(self, records: List[Dict[str, Any]]) -> None:
         """詳細分析結果を表示"""
@@ -640,8 +639,11 @@ class DMARCAnalyzer:
         
         if external_domains:
             print("\nドメイン一覧 (完全表示):")
+            # ドメインをグループ化
+            grouped_domains = self.group_similar_domains(external_domains)
+            
             # 総件数でソート
-            sorted_domains = sorted(external_domains.items(), 
+            sorted_domains = sorted(grouped_domains.items(), 
                                   key=lambda x: sum(x[1].values()), 
                                   reverse=True)
             
@@ -678,6 +680,68 @@ class DMARCAnalyzer:
                 
                 total_count = spf_total + dkim_total
                 print(f"  {domain} {', '.join(parts)} 計{total_count}件")
+    
+    def group_similar_domains(self, external_domains: Dict[str, Dict]) -> Dict[str, Dict]:
+        """類似ドメインをグループ化"""
+        # まず、共通サフィックスでグループ分け
+        suffix_groups = {}
+        
+        for domain, stats in external_domains.items():
+            # ドメインの構造を解析
+            parts = domain.split('.')
+            
+            # 3レベル以上のサブドメインがある場合のみグループ化対象
+            if len(parts) >= 4:
+                # 下位2レベル（例：salesforce.com）を基準にグループ化
+                suffix = '.'.join(parts[-2:])
+                
+                if suffix not in suffix_groups:
+                    suffix_groups[suffix] = {}
+                
+                # さらに3レベル目も考慮（例：bnc.salesforce.com）
+                three_level_suffix = '.'.join(parts[-3:]) if len(parts) >= 3 else suffix
+                
+                if three_level_suffix not in suffix_groups[suffix]:
+                    suffix_groups[suffix][three_level_suffix] = []
+                
+                suffix_groups[suffix][three_level_suffix].append((domain, stats))
+            else:
+                # グループ化対象外のドメインはそのまま保持
+                if 'individual' not in suffix_groups:
+                    suffix_groups['individual'] = {}
+                suffix_groups['individual'][domain] = [(domain, stats)]
+        
+        # グループ化結果を構築
+        grouped_domains = {}
+        
+        for suffix, three_level_groups in suffix_groups.items():
+            if suffix == 'individual':
+                # 個別ドメインはそのまま追加
+                for domain, domain_list in three_level_groups.items():
+                    domain_name, stats = domain_list[0]
+                    grouped_domains[domain_name] = stats
+            else:
+                for three_level_suffix, domain_list in three_level_groups.items():
+                    if len(domain_list) >= 3:  # 3個以上ある場合はまとめる
+                        # 統計を合計
+                        merged_stats = {
+                            'spf_pass': 0, 'spf_softfail': 0, 'spf_fail': 0, 'spf_none': 0, 'spf_other': 0,
+                            'dkim_pass': 0, 'dkim_fail': 0, 'dkim_other': 0
+                        }
+                        
+                        for _, stats in domain_list:
+                            for key in merged_stats:
+                                merged_stats[key] += stats[key]
+                        
+                        # ワイルドカード形式で表示
+                        grouped_name = f"*.{three_level_suffix}"
+                        grouped_domains[grouped_name] = merged_stats
+                    else:
+                        # 3個未満の場合は個別に表示
+                        for domain_name, stats in domain_list:
+                            grouped_domains[domain_name] = stats
+        
+        return grouped_domains
     
     def cleanup(self) -> None:
         """一時ファイルをクリーンアップ"""
