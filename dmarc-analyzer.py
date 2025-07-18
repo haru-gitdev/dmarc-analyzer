@@ -558,14 +558,8 @@ class DMARCAnalyzer:
                 print("\n✅ 全てのレコードでエラーがありませんでした")
                 return
         
-        # 詳細分析の確認
-        if not show_details:
-            response = input("\n詳細な分析結果を表示しますか？(Y/n): ").strip()
-            if response.lower() in ['y', 'yes', '']:
-                show_details = True
-        
-        if show_details:
-            self.show_detailed_analysis(consolidated_records if show_all else error_records)
+        # 詳細分析を常に表示
+        self.show_detailed_analysis(consolidated_records if show_all else error_records)
     
     def show_detailed_analysis(self, records: List[Dict[str, Any]]) -> None:
         """詳細分析結果を表示"""
@@ -600,41 +594,90 @@ class DMARCAnalyzer:
             fail_rate = stats['fails'] / stats['total'] * 100
             print(f"  - {domain}: {stats['total']}件中{stats['fails']}件失敗 ({fail_rate:.1f}%)")
         
-        # 認証失敗している外部ドメインの分析
-        auth_fail_domains = {}
+        # 外部ドメインの分析（passも含む）
+        external_domains = {}
         
         for record in records:
-            # SPF失敗ドメイン
-            if record['spf_result'] != 'pass' and record['spf_domain']:
+            # SPFドメイン（Header Fromと異なる場合のみ外部ドメインとして扱う）
+            if record['spf_domain'] and record['spf_domain'] != record['header_from']:
                 domain = record['spf_domain']
-                if domain not in auth_fail_domains:
-                    auth_fail_domains[domain] = {'spf_fails': 0, 'dkim_fails': 0}
-                auth_fail_domains[domain]['spf_fails'] += 1
+                if domain not in external_domains:
+                    external_domains[domain] = {
+                        'spf_pass': 0, 'spf_softfail': 0, 'spf_fail': 0, 'spf_none': 0, 'spf_other': 0,
+                        'dkim_pass': 0, 'dkim_fail': 0, 'dkim_other': 0
+                    }
+                
+                # SPF結果を分類
+                spf_result = record['spf_result'].lower()
+                if spf_result == 'pass':
+                    external_domains[domain]['spf_pass'] += 1
+                elif spf_result == 'softfail':
+                    external_domains[domain]['spf_softfail'] += 1
+                elif spf_result == 'fail':
+                    external_domains[domain]['spf_fail'] += 1
+                elif spf_result == 'none':
+                    external_domains[domain]['spf_none'] += 1
+                else:
+                    external_domains[domain]['spf_other'] += 1
             
-            # DKIM失敗ドメイン
-            if record['dkim_result'] != 'pass' and record['dkim_domain']:
+            # DKIMドメイン（Header Fromと異なる場合のみ外部ドメインとして扱う）
+            if record['dkim_domain'] and record['dkim_domain'] != record['header_from']:
                 domain = record['dkim_domain']
-                if domain not in auth_fail_domains:
-                    auth_fail_domains[domain] = {'spf_fails': 0, 'dkim_fails': 0}
-                auth_fail_domains[domain]['dkim_fails'] += 1
+                if domain not in external_domains:
+                    external_domains[domain] = {
+                        'spf_pass': 0, 'spf_softfail': 0, 'spf_fail': 0, 'spf_none': 0, 'spf_other': 0,
+                        'dkim_pass': 0, 'dkim_fail': 0, 'dkim_other': 0
+                    }
+                
+                # DKIM結果を分類
+                dkim_result = record['dkim_result'].lower()
+                if dkim_result == 'pass':
+                    external_domains[domain]['dkim_pass'] += 1
+                elif dkim_result == 'fail':
+                    external_domains[domain]['dkim_fail'] += 1
+                else:
+                    external_domains[domain]['dkim_other'] += 1
         
-        if auth_fail_domains:
-            print("\n❌ 認証失敗している外部ドメイン一覧 (完全表示):")
-            # 失敗件数の合計でソート
-            sorted_domains = sorted(auth_fail_domains.items(), 
-                                  key=lambda x: x[1]['spf_fails'] + x[1]['dkim_fails'], 
+        if external_domains:
+            print("\nドメイン一覧 (完全表示):")
+            # 総件数でソート
+            sorted_domains = sorted(external_domains.items(), 
+                                  key=lambda x: sum(x[1].values()), 
                                   reverse=True)
             
             for domain, stats in sorted_domains:
-                fail_types = []
-                total_fails = 0
-                if stats['spf_fails'] > 0:
-                    fail_types.append(f"SPF {stats['spf_fails']}件")
-                    total_fails += stats['spf_fails']
-                if stats['dkim_fails'] > 0:
-                    fail_types.append(f"DKIM {stats['dkim_fails']}件")
-                    total_fails += stats['dkim_fails']
-                print(f"  {domain} - {', '.join(fail_types)} (計{total_fails}件)")
+                parts = []
+                
+                # SPF統計
+                spf_total = stats['spf_pass'] + stats['spf_softfail'] + stats['spf_fail'] + stats['spf_none'] + stats['spf_other']
+                if spf_total > 0:
+                    spf_details = []
+                    if stats['spf_pass'] > 0:
+                        spf_details.append(f"pass {stats['spf_pass']}件")
+                    if stats['spf_softfail'] > 0:
+                        spf_details.append(f"softfail {stats['spf_softfail']}件")
+                    if stats['spf_fail'] > 0:
+                        spf_details.append(f"fail {stats['spf_fail']}件")
+                    if stats['spf_none'] > 0:
+                        spf_details.append(f"none {stats['spf_none']}件")
+                    if stats['spf_other'] > 0:
+                        spf_details.append(f"other {stats['spf_other']}件")
+                    parts.append(f"SPF {spf_total}件({', '.join(spf_details)})")
+                
+                # DKIM統計
+                dkim_total = stats['dkim_pass'] + stats['dkim_fail'] + stats['dkim_other']
+                if dkim_total > 0:
+                    dkim_details = []
+                    if stats['dkim_pass'] > 0:
+                        dkim_details.append(f"pass {stats['dkim_pass']}件")
+                    if stats['dkim_fail'] > 0:
+                        dkim_details.append(f"fail {stats['dkim_fail']}件")
+                    if stats['dkim_other'] > 0:
+                        dkim_details.append(f"other {stats['dkim_other']}件")
+                    parts.append(f"DKIM {dkim_total}件({', '.join(dkim_details)})")
+                
+                total_count = spf_total + dkim_total
+                print(f"  {domain} {', '.join(parts)} 計{total_count}件")
     
     def cleanup(self) -> None:
         """一時ファイルをクリーンアップ"""
