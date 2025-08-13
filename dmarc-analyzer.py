@@ -74,9 +74,6 @@ class DMARCAnalyzer:
             print(f"❌ ディレクトリが見つかりません: {self.dmarc_dir}")
             return xml_files
         
-        print(f"📁 ディレクトリ内容を確認: {self.dmarc_dir}")
-        all_files = os.listdir(self.dmarc_dir)
-        print(f"📋 ファイル一覧: {all_files}")
         
         # 既存のXMLファイルを取得
         existing_xml = glob.glob(os.path.join(self.dmarc_dir, "*.xml"))
@@ -86,8 +83,6 @@ class DMARCAnalyzer:
         
         # ZIPファイルを解凍
         zip_files = glob.glob(os.path.join(self.dmarc_dir, "*.zip"))
-        if zip_files:
-            print(f"📦 ZIPファイル発見: {[os.path.basename(f) for f in zip_files]}")
         
         for zip_path in zip_files:
             try:
@@ -101,15 +96,12 @@ class DMARCAnalyzer:
                 
                 # 解凍後にZIPファイルを削除
                 os.remove(zip_path)
-                print(f"✅ 解凍・削除完了: {os.path.basename(zip_path)}")
                 
             except Exception as e:
                 print(f"❌ ZIP解凍エラー {zip_path}: {e}")
         
         # GZファイルを解凍
         gz_files = glob.glob(os.path.join(self.dmarc_dir, "*.gz"))
-        if gz_files:
-            print(f"🗜️ GZファイル発見: {[os.path.basename(f) for f in gz_files]}")
         
         for gz_path in gz_files:
             try:
@@ -123,14 +115,10 @@ class DMARCAnalyzer:
                 
                 # 解凍後にGZファイルを削除
                 os.remove(gz_path)
-                print(f"✅ 解凍・削除完了: {os.path.basename(gz_path)}")
                 
             except Exception as e:
                 print(f"❌ GZ解凍エラー {gz_path}: {e}")
         
-        print(f"📊 最終的に見つかったXMLファイル数: {len(xml_files)}")
-        if xml_files:
-            print(f"📄 XMLファイル一覧: {[os.path.basename(f) for f in xml_files]}")
         
         return xml_files
     
@@ -511,12 +499,9 @@ class DMARCAnalyzer:
             print("❌ 処理対象のXMLファイルが見つかりません")
             return
         
-        print(f"📄 {len(xml_files)}個のXMLファイルを処理します")
-        
         # 全レコードを収集
         all_records = []
         for xml_file in xml_files:
-            print(f"📖 処理中: {os.path.basename(xml_file)}")
             records = self.parse_xml(xml_file)
             
             # DMARC評価
@@ -749,7 +734,6 @@ class DMARCAnalyzer:
             if os.path.exists(temp_file):
                 try:
                     os.remove(temp_file)
-                    print(f"🗑️  一時ファイル削除: {os.path.basename(temp_file)}")
                 except Exception as e:
                     print(f"❌ ファイル削除エラー {temp_file}: {e}")
 
