@@ -119,6 +119,9 @@ class DMARCAnalyzer:
             except Exception as e:
                 print(f"❌ GZ解凍エラー {gz_path}: {e}")
         
+        print(f"📊 最終的に見つかったXMLファイル数: {len(xml_files)}")
+        if xml_files:
+            print(f"📄 XMLファイル一覧: {[os.path.basename(f) for f in xml_files]}")
         
         return xml_files
     
@@ -498,6 +501,8 @@ class DMARCAnalyzer:
         if not xml_files:
             print("❌ 処理対象のXMLファイルが見つかりません")
             return
+        
+        print(f"📄 {len(xml_files)}個のXMLファイルを処理します")
         
         # 全レコードを収集
         all_records = []
