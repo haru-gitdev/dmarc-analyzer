@@ -20,6 +20,8 @@ import zipfile
 import gzip
 import glob
 import argparse
+from datetime import datetime
+from html import escape
 from pathlib import Path
 import json
 import shutil
@@ -73,6 +75,8 @@ class DMARCAnalyzer:
     def __init__(self, dmarc_dir: str = None):
         self.dmarc_dir = dmarc_dir or os.path.expanduser("~/Downloads/DMARC")
         self.temp_files = []  # 解凍したファイルを追跡
+        self.source_archives = []  # 正常に解凍できたZIP/GZを追跡
+        self.processing_errors = []
         
     def extract_files(self) -> List[str]:
         """ZIP/GZ ファイルを解凍してXMLファイルのパスを返す"""
@@ -102,10 +106,10 @@ class DMARCAnalyzer:
                             xml_files.append(extract_path)
                             self.temp_files.append(extract_path)
                 
-                # 解凍後にZIPファイルを削除
-                os.remove(zip_path)
+                self.source_archives.append(zip_path)
                 
             except Exception as e:
+                self.processing_errors.append(f"ZIP解凍エラー {zip_path}: {e}")
                 print(f"❌ ZIP解凍エラー {zip_path}: {e}")
         
         # GZファイルを解凍
@@ -121,10 +125,10 @@ class DMARCAnalyzer:
                 xml_files.append(xml_path)
                 self.temp_files.append(xml_path)
                 
-                # 解凍後にGZファイルを削除
-                os.remove(gz_path)
+                self.source_archives.append(gz_path)
                 
             except Exception as e:
+                self.processing_errors.append(f"GZ解凍エラー {gz_path}: {e}")
                 print(f"❌ GZ解凍エラー {gz_path}: {e}")
         
         print(f"📊 最終的に見つかったXMLファイル数: {len(xml_files)}")
@@ -159,6 +163,7 @@ class DMARCAnalyzer:
                     records.append(record_data)
                     
         except Exception as e:
+            self.processing_errors.append(f"XML解析エラー {xml_path}: {e}")
             print(f"❌ XML解析エラー {xml_path}: {e}")
             
         return records
@@ -500,7 +505,12 @@ class DMARCAnalyzer:
         else:
             return f"{Fore.YELLOW}{result}{Style.RESET_ALL}"
     
-    def analyze(self, show_all: bool = False, show_details: bool = False) -> None:
+    def analyze(
+        self,
+        show_all: bool = False,
+        show_details: bool = False,
+        show_colors: bool = True,
+    ) -> Optional[Dict[str, Any]]:
         """メイン分析処理"""
         print("🔍 DMARC レポート分析を開始します...")
         
@@ -508,7 +518,7 @@ class DMARCAnalyzer:
         xml_files = self.extract_files()
         if not xml_files:
             print("❌ 処理対象のXMLファイルが見つかりません")
-            return
+            return None
         
         print(f"📄 {len(xml_files)}個のXMLファイルを処理します")
         
@@ -524,7 +534,7 @@ class DMARCAnalyzer:
         
         if not all_records:
             print("❌ 処理可能なレコードが見つかりません")
-            return
+            return None
         
         # レコード統合
         consolidated_records = self.consolidate_records(all_records)
@@ -536,7 +546,7 @@ class DMARCAnalyzer:
             print("\n" + "="*80)
             print("📋 全レコード表示")
             print("="*80)
-            table = self.format_table(consolidated_records)
+            table = self.format_table(consolidated_records, show_colors=show_colors)
             print(table)
         else:
             # エラーレコードのみ表示
@@ -546,7 +556,7 @@ class DMARCAnalyzer:
                 print("\n" + "="*80)
                 print("⚠️  エラーのあるレコード")
                 print("="*80)
-                table = self.format_table(error_records)
+                table = self.format_table(error_records, show_colors=show_colors)
                 print(table)
                 
                 print(f"\n❌ {len(error_records)}件のレコードでエラーが発生しました。")
@@ -557,6 +567,102 @@ class DMARCAnalyzer:
         
         # 詳細分析を常に表示
         self.show_detailed_analysis(consolidated_records)
+
+        error_records, clean_count = self.filter_error_records(consolidated_records)
+        return {
+            'generated_at': datetime.now().astimezone().isoformat(timespec='seconds'),
+            'source_files': [os.path.basename(path) for path in self.source_archives],
+            'summary': {
+                'record_groups': len(consolidated_records),
+                'message_count': sum(record['count'] for record in consolidated_records),
+                'error_record_groups': len(error_records),
+                'clean_record_groups': clean_count,
+                'spf_failures': sum(1 for record in consolidated_records if record['spf_result'] != 'pass'),
+                'dkim_failures': sum(1 for record in consolidated_records if record['dkim_result'] != 'pass'),
+                'dmarc_failures': sum(1 for record in consolidated_records if record['dmarc_result'] != 'pass'),
+            },
+            'errors': error_records,
+            'records': consolidated_records,
+        }
+
+    def write_json_report(self, report: Dict[str, Any], output_path: str) -> None:
+        """分析結果を機械処理しやすいJSONとして保存"""
+        path = Path(output_path).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = path.with_suffix(path.suffix + '.tmp')
+        temporary_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + '\n',
+            encoding='utf-8',
+        )
+        temporary_path.replace(path)
+
+    def write_html_report(self, report: Dict[str, Any], output_path: str) -> None:
+        """横長の結果をブラウザで確認できるHTMLとして保存"""
+        path = Path(output_path).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        summary = report['summary']
+        headers = [
+            ('source_ip', 'Source IP'), ('count', 'Count'),
+            ('header_from', 'Header From'), ('spf_domain', 'SPF Domain'),
+            ('spf_result', 'SPF Result'), ('dkim_domain', 'DKIM Domain'),
+            ('dkim_result', 'DKIM Result'), ('dkim_selector', 'DKIM Selector'),
+            ('dmarc_result', 'DMARC Result'),
+        ]
+
+        def table(records: List[Dict[str, Any]]) -> str:
+            if not records:
+                return '<p class="ok">該当レコードはありません。</p>'
+            heading = ''.join(f'<th>{escape(label)}</th>' for _, label in headers)
+            rows = []
+            for record in records:
+                cells = []
+                for key, _ in headers:
+                    value = str(record.get(key, ''))
+                    result_class = f' class="result-{escape(value.lower())}"' if key.endswith('_result') else ''
+                    cells.append(f'<td{result_class}>{escape(value)}</td>')
+                rows.append('<tr>' + ''.join(cells) + '</tr>')
+            return f'<div class="table-wrap"><table><thead><tr>{heading}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
+
+        document = f'''<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DMARC Report {escape(report['generated_at'])}</title>
+<style>
+body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:24px;color:#172033;background:#f6f8fb}}
+.cards{{display:flex;gap:12px;flex-wrap:wrap;margin:20px 0}}.card{{background:white;border:1px solid #dce2ea;border-radius:10px;padding:14px 18px;min-width:140px}}
+.value{{font-size:1.7rem;font-weight:700}}.label{{color:#667085;font-size:.85rem}}.alert{{color:#b42318}}.ok,.result-pass{{color:#067647}}.result-fail{{color:#b42318;font-weight:700}}
+.table-wrap{{overflow-x:auto;background:white;border:1px solid #dce2ea;border-radius:10px}}table{{border-collapse:collapse;white-space:nowrap;width:100%}}th,td{{padding:9px 12px;border-bottom:1px solid #eaecf0;text-align:left}}th{{background:#f2f4f7;position:sticky;top:0}}h2{{margin-top:30px}}code{{word-break:break-all}}
+</style></head><body>
+<h1>DMARC Analysis</h1><p>生成日時: {escape(report['generated_at'])}</p>
+<div class="cards">
+<div class="card"><div class="value">{summary['message_count']:,}</div><div class="label">Messages</div></div>
+<div class="card"><div class="value">{summary['record_groups']:,}</div><div class="label">Record groups</div></div>
+<div class="card"><div class="value alert">{summary['dmarc_failures']:,}</div><div class="label">DMARC failures</div></div>
+<div class="card"><div class="value alert">{summary['error_record_groups']:,}</div><div class="label">Error groups</div></div>
+</div>
+<h2>Errors</h2>{table(report['errors'])}
+<h2>All records</h2>{table(report['records'])}
+</body></html>'''
+        temporary_path = path.with_suffix(path.suffix + '.tmp')
+        temporary_path.write_text(document, encoding='utf-8')
+        temporary_path.replace(path)
+
+    def archive_inputs(self, archive_root: str) -> List[str]:
+        """分析・レポート保存成功後に原本を月別ディレクトリへ移動"""
+        month_dir = Path(archive_root).expanduser() / datetime.now().strftime('%Y-%m')
+        month_dir.mkdir(parents=True, exist_ok=True)
+        archived = []
+        for source in self.source_archives:
+            source_path = Path(source)
+            if not source_path.exists():
+                continue
+            destination = month_dir / source_path.name
+            if destination.exists():
+                stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+                destination = month_dir / f'{source_path.stem}-{stamp}{source_path.suffix}'
+            shutil.move(str(source_path), str(destination))
+            archived.append(str(destination))
+        return archived
     
     def show_detailed_analysis(self, records: List[Dict[str, Any]]) -> None:
         """詳細分析結果を表示"""
@@ -761,20 +867,52 @@ def main():
                        help='DMARCレポートディレクトリのパス (デフォルト: ~/Downloads/DMARC)')
     parser.add_argument('--no-color', action='store_true', 
                        help='カラー表示を無効にする')
+    parser.add_argument('--json-output', type=str,
+                       help='分析結果をJSONファイルへ保存')
+    parser.add_argument('--html-output', type=str,
+                       help='分析結果をHTMLファイルへ保存')
+    parser.add_argument('--archive-dir', type=str,
+                       help='成功後にZIP/GZ原本を移動する場所 (デフォルト: DIR/processed)')
+    parser.add_argument('--keep-inputs', action='store_true',
+                       help='分析成功後もZIP/GZ原本を元の場所に残す')
     
     args = parser.parse_args()
     
     # 分析実行
     analyzer = DMARCAnalyzer(args.dir)
     
+    exit_code = 0
     try:
-        analyzer.analyze(show_all=args.all, show_details=args.details)
+        report = analyzer.analyze(
+            show_all=args.all,
+            show_details=args.details,
+            show_colors=not args.no_color,
+        )
+        if analyzer.processing_errors:
+            print("❌ 処理エラーがあるため、原本のアーカイブとレポート保存を中止しました")
+            exit_code = 1
+        elif report:
+            if args.json_output:
+                analyzer.write_json_report(report, args.json_output)
+                print(f"📝 JSONレポート: {Path(args.json_output).expanduser()}")
+            if args.html_output:
+                analyzer.write_html_report(report, args.html_output)
+                print(f"🌐 HTMLレポート: {Path(args.html_output).expanduser()}")
+            if not args.keep_inputs:
+                archive_dir = args.archive_dir or os.path.join(analyzer.dmarc_dir, 'processed')
+                archived = analyzer.archive_inputs(archive_dir)
+                if archived:
+                    print(f"📦 原本をアーカイブしました: {len(archived)}件")
     except KeyboardInterrupt:
         print("\n\n⚠️  処理が中断されました")
+        exit_code = 130
     except Exception as e:
         print(f"\n❌ エラーが発生しました: {e}")
+        exit_code = 1
     finally:
         analyzer.cleanup()
+
+    sys.exit(exit_code)
 
 if __name__ == "__main__":
     main()

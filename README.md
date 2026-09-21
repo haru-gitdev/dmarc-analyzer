@@ -4,7 +4,7 @@
 
 ## 🚀 機能
 
-- **自動ファイル処理**: ZIP/GZ ファイルの自動検出・解凍・削除
+- **自動ファイル処理**: ZIP/GZ ファイルの自動検出・解凍・安全なアーカイブ
 - **エラーフィルタリング**: エラーのあるレコードのみを自動抽出・表示
 - **DMARC評価**: SPF/DKIM アライメント考慮の正確な結果判定
 - **視覚的表示**: カラー付きテーブル形式での見やすい結果表示
@@ -74,6 +74,11 @@ dmarc-analyzer --dir /path/to/dmarc/files
 
 # カラー表示を無効化
 dmarc-analyzer --no-color
+
+# JSON・HTMLレポートを保存し、処理済み原本を安全にアーカイブ
+dmarc-analyzer \
+  --json-output ~/Downloads/DMARC/reports/latest.json \
+  --html-output ~/Downloads/DMARC/reports/latest.html
 ```
 
 ### コマンドオプション
@@ -84,7 +89,24 @@ dmarc-analyzer --no-color
 | `--details` | 詳細分析結果を表示 |
 | `--dir DIR` | DMARCレポートディレクトリのパス指定 |
 | `--no-color` | カラー表示を無効にする |
+| `--json-output FILE` | 分析結果をJSONへ保存 |
+| `--html-output FILE` | 横スクロール対応HTMLレポートを保存 |
+| `--archive-dir DIR` | 成功後のZIP/GZ原本の移動先（既定値: 入力先の`processed`） |
+| `--keep-inputs` | ZIP/GZ原本を移動せず元の場所に残す |
 | `--help` | ヘルプメッセージを表示 |
+
+レポート保存または解析に失敗した場合、ZIP/GZ原本は元の場所に保持されます。正常終了時のみ、原本を月別のアーカイブディレクトリへ移動します。
+
+## ⏱️ Google Apps Scriptによる自動運用
+
+`gas/Code.gs` は、Gmailへ届くDMARC集約レポートを定期処理するGoogle Apps Script版です。
+
+- ZIP/GZ添付をGoogle Driveへ保存し、処理済みメールをラベル管理
+- SPF・DKIM・DMARCの判定をGoogle Sheetsへ記録
+- 問題のあるレコードを`Issues`シートへ集約
+- PASS / SOFTFAIL / FAILをメールで通知し、詳細シートへのリンクを掲載
+
+DriveフォルダIDと通知先メールアドレスはコードへ直接書かず、Apps Scriptのスクリプトプロパティ `DMARC_REPORT_FOLDER_ID` と `DMARC_NOTIFICATION_EMAIL` に設定してください。時間主導型トリガーの間隔はApps Script側で設定します。
 
 ## 📊 出力例
 
@@ -202,6 +224,12 @@ MIT License - 詳細は [LICENSE](LICENSE) ファイルを参照
 - **機能要望**: 同じく GitHub Issues で
 
 ## 📈 バージョン履歴
+
+- **v1.5.0** - GAS自動処理と構造化レポート
+  - JSON・横スクロール対応HTML出力を追加
+  - ZIP/GZ原本を解析成功後に月別アーカイブへ移動
+  - 解析・保存失敗時に原本を保持
+  - GASによるGmail添付の定期処理、Google Sheets記録、判定メール通知を追加
 
 - **v1.4.0** - 出力の簡潔化
   - 不要な処理メッセージを削除（ディレクトリ一覧、ZIP/GZ発見、解凍・削除、処理中、一時ファイル削除）

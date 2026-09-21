@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## プロジェクト概要
 
-DMARC Analyzer は、XMLファイルからDMARCレポートを自動解析し、エラーのあるレコードを抽出・表示するセキュリティツールです。単一のPythonスクリプト（dmarc-analyzer.py）で構成され、647行のコードで完全な分析機能を提供します。
+DMARC Analyzer は、XMLファイルからDMARCレポートを解析し、エラーのあるレコードを抽出・表示するセキュリティツールです。Python CLIに加えて、Gmail添付の取得、Google Sheetsへの記録、メール通知を行うGoogle Apps Script版も含みます。
 
 ## 開発環境セットアップ
 
@@ -52,6 +52,12 @@ dmarc-analyzer --help
 - `format_table()`: ターミナル幅対応の動的テーブル生成
 - `calculate_column_widths()`: 列幅の最適化計算
 - `show_detailed_analysis()`: 統計情報とドメイン別分析
+- `write_json_report()`, `write_html_report()`: 構造化レポート生成
+
+### Google Apps Script
+
+- `gas/Code.gs`: Gmail添付の保存、DMARC解析、Sheets記録、判定メール通知
+- 実環境のDriveフォルダIDと通知先はスクリプトプロパティで管理する
 
 ### 重要なワークフロー
 
@@ -87,6 +93,9 @@ dmarc-analyzer --all --details --dir /path/to/test/files
 
 # カラー無効でのテスト
 dmarc-analyzer --no-color
+
+# CLI回帰テスト
+python3 -m unittest tests/test_cli.py
 ```
 
 ## バージョン管理
@@ -94,9 +103,12 @@ dmarc-analyzer --no-color
 - v1.0.0: 基本機能
 - v1.1.0: テーブル表示改善  
 - v1.2.0: エラードメイン完全一覧表示機能
+- v1.5.0: GAS自動処理、JSON/HTML出力、安全な原本アーカイブ
 
 READMEのバージョン履歴セクションを必ず更新すること。
 
 ## セキュリティ考慮事項
 
 このツールは防御的セキュリティ分析専用です。DMARC設定の改善とメールセキュリティ向上が目的であり、悪用可能な機能は含まれていません。
+
+このリポジトリは公開を前提とする。実際のメールアドレス、Drive/Spreadsheet/Apps ScriptのID、DMARC原本、ローカルの個人パス、認証情報をコミットしないこと。

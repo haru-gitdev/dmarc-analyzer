@@ -65,3 +65,6 @@ test-data/
 # Temporary files
 *.tmp
 *.temp
+
+# Local Google Apps Script snapshots
+gas/Code.backup-*.gs
